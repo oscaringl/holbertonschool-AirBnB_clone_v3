@@ -1,25 +1,33 @@
 #!/usr/bin/python3
-"""API endpoint"""
-from flask import jsonify
-from models import storage
+"""Flask app"""
+from flask import Flask, Blueprint, jsonify, request
 from api.v1.views import app_views
+from models import storage
 
 
-@app_views.route('/status')
-def get_status():
-    """Returns HTTP status 200"""
-    return jsonify({"status": "OK"}), 200
+@app_views.route('/status', methods=['GET'])
+def status():
+    if request.method == 'GET':
+        return jsonify({"status": "OK"})
 
 
 @app_views.route('/stats')
-def get_count():
-    """retrieves the number of each objects by type"""
-    stats = {
+def count():
+    """
+        counts object
+    """
+
+    dictionary = {}
+    clss = {
         "Amenity": "amenities",
-        "City": "cities",
         "Place": "places",
-        "Review": "reviews",
         "State": "states",
+        "City": "cities",
+        "Review": "reviews",
         "User": "users"
     }
-    return jsonify({name: storage.count(cls) for cls, name in stats.items()})
+
+    for cls in clss:
+        count = storage.count(cls)
+        dictionary[clss.get(cls)] = count
+    return jsonify(dictionary)
