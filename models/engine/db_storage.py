@@ -1,102 +1,132 @@
 #!/usr/bin/python3
-"""create class DBStorage"""
+"""Database storage engine using SQLAlchemy with a mysql+mysqldb database
+connection.
+"""
+import json
 from os import getenv
-from sqlalchemy import (create_engine)
+from models import Base, classes
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
-from models.amenity import Amenity
-from models.base_model import BaseModel, Base
-from models.city import City
-from models.place import Place
-from models.review import Review
-from models.state import State
-from models.user import User
-
-
-database = getenv("HBNB_MYSQL_DB")
-user = getenv("HBNB_MYSQL_USER")
-host = getenv("HBNB_MYSQL_HOST")
-password = getenv("HBNB_MYSQL_PWD")
-hbnb_env = getenv("HBNB_ENV")
-
-classes = {"State": State, "City": City, "User": User,
-           "Place": Place, "Review": Review, "Amenity": Amenity}
 
 
 class DBStorage:
-    """class DBStorage"""
+    """Class to represent database storage object"""
     __engine = None
     __session = None
+    __file_path = "file.json"
 
     def __init__(self):
-        """initialize instances"""
-        self.__engine = create_engine('mysql+mysqldb://{}:{}@{}/{}'.format
-                                      (user, password, host, database),
-                                      pool_pre_ping=True)
+        """ creates connection to db"""
+        user = getenv('HBNB_MYSQL_USER')
+        passwd = getenv('HBNB_MYSQL_PWD')
+        host = getenv('HBNB_MYSQL_HOST')
+        database = getenv('HBNB_MYSQL_DB')
 
-        if hbnb_env == 'test':
-            Base.metadata.drop_all(self.__engine)
+        self.in_memory_db = getenv("HBNB_TYPE_STORAGE") == 'sl'
+
+        if self.in_memory_db:
+            self.__engine = create_engine('sqlite:///:memory:')
+        elif getenv('HBNB_TYPE_STORAGE') == 'db':
+            self.__engine = create_engine('mysql+mysqldb://{}:{}@{}/{}'
+                                          .format(user,
+                                                  passwd,
+                                                  host,
+                                                  database),
+                                          pool_pre_ping=True)
+        if getenv('HBNB_ENV') == 'test':
+            if database == 'hbnb_dev_db':
+                raise Exception("Using 'hbnb_dev_db' in 'test' mode. "
+                                "This will drop all tables. "
+                                "Are you sure you want to do this?")
+            else:
+                Base.metadata.drop_all(self.__engine)
 
     def all(self, cls=None):
-        """return dictionary of instance attributes
-        Args:
-            cls (obj): memory address of class
-        Returns:
-            dictionary of objects
-        """
-        dbobjects = {}
-        if cls:
-            if type(cls) is str and cls in classes:
-                for obj in self.__session.query(classes[cls]).all():
-                    key = str(obj.__class__.__name__) + "." + str(obj.id)
-                    val = obj
-                    dbobjects[key] = val
-            elif cls.__name__ in classes:
-                for obj in self.__session.query(cls).all():
-                    key = str(obj.__class__.__name__) + "." + str(obj.id)
-                    val = obj
-                    dbobjects[key] = val
-        else:
-            for k, v in classes.items():
-                for obj in self.__session.query(v).all():
-                    key = str(v.__name__) + "." + str(obj.id)
-                    val = obj
-                    dbobjects[key] = val
-        return dbobjects
+        """query on current db"""
+        if not self.__session:
+            self.reload()
+        objects = {}
+        if type(cls) == str:
+            cls = classes.get(cls, None)
+        if cls:  # return specified object
+            for obj in self.__session.query(cls):
+                objects[obj.__class__.__name__ + '.' + obj.id] = obj
+        else:  # return all objects
+            for cls in classes.values():
+                for obj in self.__session.query(cls):
+                    objects[obj.__class__.__name__ + '.' + obj.id] = obj
+        return objects
+
+    def reload(self):
+        """load all tables"""
+        session_factory = sessionmaker(bind=self.__engine,
+                                       expire_on_commit=False)
+        Base.metadata.create_all(self.__engine)
+        self.__session = scoped_session(session_factory)
+        if self.in_memory_db:
+            self.reload_from_json()
+            self.__session.flush()
+
+    def reload_from_json(self):
+        """deserializes the JSON file to __objects"""
+        def object_hook(o):
+            if '__class__' in o:
+                oclass = o['__class__']
+                return classes[oclass](**o)
+            else:
+                return o
+
+        try:
+            with open(self.__file_path, 'r') as f:
+                self.__objects = json.load(f, object_hook=object_hook)
+        except:
+            self.__objects.clear()
+            raise
 
     def new(self, obj):
-        """
-        add object to current database session
-        Args:
-            obj (obj): an object
-        """
-        if obj:
+        """add the object to the current database session"""
+        # if sl then only add if obj isnt in session
+        # if db then add obj regardless into session
+        if not self.get(obj.__class__.__name__, obj.id) or \
+                getenv('HBNB_TYPE_STORAGE') == 'db':
             self.__session.add(obj)
 
     def save(self):
-        """
-        commit all changes of the current database session
-        """
+        """commit all changes of the current database session"""
         self.__session.commit()
+        if self.in_memory_db:
+            self.save_to_json()
+
+    def save_to_json(self):
+        """serializes __objects to the JSON file (path: __file_path)"""
+        class MyEncoder(json.JSONEncoder):
+            def default(self, o):
+                try:
+                    return o.to_dict()
+                except AttributeError as e:
+                    return o
+
+        with open(self.__file_path, 'w') as f:
+            json.dump(self.all(), f, cls=MyEncoder)
 
     def delete(self, obj=None):
-        """
-        delete from the current database session obj if not None
-        Args:
-            obj (obj): an object
-        """
-        if obj is not None:
+        """delete from the current database session obj if not None"""
+        if not self.__session:
+            self.reload()
+        if obj:
             self.__session.delete(obj)
 
-    def reload(self):
-        """
-        create all tables in the database and the current database session
-        """
-        Base.metadata.create_all(self.__engine)
-        session_factory = sessionmaker(bind=self.__engine,
-                                       expire_on_commit=False)
-        Session = scoped_session(session_factory)
-        self.__session = Session()
-
     def close(self):
-        """close session"""
-        self.__session.close()
+        """Dispose of current session if active"""
+        self.__session.remove()
+
+    def get(self, cls, id):
+        """Retrieve object based on class name and id, else None
+        if not found"""
+        cls = classes.get(cls, None)
+        return self.__session.query(cls).filter(cls.id == id).first() \
+            if cls else None
+
+    def count(self, cls=None):
+        """Count number of objects in storage or number of type `cls`"""
+        return len(self.all(cls))
