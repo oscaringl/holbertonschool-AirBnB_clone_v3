@@ -2,15 +2,24 @@
 """
 Contains the FileStorage class
 """
+
 import json
-from models import classes
+from models.amenity import Amenity
+from models.base_model import BaseModel
+from models.city import City
+from models.place import Place
+from models.review import Review
+from models.state import State
+from models.user import User
+
+classes = {"Amenity": Amenity, "BaseModel": BaseModel, "City": City,
+           "Place": Place, "Review": Review, "State": State, "User": User}
 
 
 class FileStorage:
     """serializes instances to a JSON file & deserializes back to instances"""
-    # string - path to the JSON file
+
     __file_path = "file.json"
-    # dictionary - empty but will store all objects by <class name>.id
     __objects = {}
 
     def all(self, cls=None):
@@ -32,30 +41,21 @@ class FileStorage:
 
     def save(self):
         """serializes __objects to the JSON file (path: __file_path)"""
-        class MyEncoder(json.JSONEncoder):
-            def default(self, o):
-                try:
-                    return o.to_dict(to_storage=True)
-                except AttributeError as e:
-                    return o
-
+        json_objects = {}
+        for key in self.__objects:
+            json_objects[key] = self.__objects[key].to_dict(save_to_disk=True)
         with open(self.__file_path, 'w') as f:
-            json.dump(self.__objects, f, cls=MyEncoder)
+            json.dump(json_objects, f)
 
     def reload(self):
         """deserializes the JSON file to __objects"""
-        def object_hook(o):
-            if '__class__' in o:
-                oclass = o['__class__']
-                return classes[oclass](**o)
-            else:
-                return o
-
         try:
             with open(self.__file_path, 'r') as f:
-                self.__objects = json.load(f, object_hook=object_hook)
-        except FileNotFoundError:
-            self.__objects.clear()
+                jo = json.load(f)
+            for key in jo:
+                self.__objects[key] = classes[jo[key]["__class__"]](**jo[key])
+        except:
+            pass
 
     def delete(self, obj=None):
         """delete obj from __objects if it’s inside"""
@@ -65,15 +65,23 @@ class FileStorage:
 
     def close(self):
         """Deserialize JSON file to objects"""
-        self.__objects.clear()
         self.reload()
 
     def get(self, cls, id):
-        """Returns obj based on cls and id else None"""
-        return self.__objects.get(cls + '.' + id, None) \
-            if type(cls) == str and type(id) == str else None
+        """Retrieve an object"""
+        if cls is not None and type(cls) is str and id is not None and\
+           type(id) is str and cls in classes:
+            key = cls + '.' + id
+            obj = self.__objects.get(key, None)
+            return obj
+        else:
+            return None
 
     def count(self, cls=None):
-        """Count number of objects in storage or specific number
-        of cls objects"""
-        return len(self.all(cls))
+        """Count number of objects in storage"""
+        total = 0
+        if type(cls) == str and cls in classes:
+            total = len(self.all(cls))
+        elif cls is None:
+            total = len(self.__objects)
+        return total
