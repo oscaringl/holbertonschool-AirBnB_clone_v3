@@ -1,29 +1,24 @@
 #!/usr/bin/python3
-''' Flask web application '''
-
-from flask import Flask
-from flask import render_template
-from models.state import State
-from models.city import City
-from models.amenity import Amenity
+"""Flask app to generate html page containing popdown menu of states/cities"""
+from flask import Flask, render_template
 from models import storage
+app = Flask('web_flask')
+app.url_map.strict_slashes = False
 
-app = Flask(__name__)
 
-
-@app.route('/hbnb_filters', strict_slashes=False)
-def hbnb_filters():
-    ''' display 6-index.html '''
-    all_states = storage.all(State)
-    all_amenities = storage.all(Amenity)
-    return render_template('10-hbnb_filters.html', states=all_states,
-                           amenities=all_amenities)
+@app.route('/hbnb_filters')
+def display_filters():
+    """Generate page with popdown menu of states/cities"""
+    states = storage.all('State')
+    amenities = storage.all('Amenity')
+    return render_template('10-hbnb_filters.html',
+                           states=states, amenities=amenities)
 
 
 @app.teardown_appcontext
-def teardown_appcontext(self):
-    ''' closes storage '''
-    return storage.close()
+def teardown_db(*args, **kwargs):
+    """Close database or file storage"""
+    storage.close()
 
 
 if __name__ == '__main__':

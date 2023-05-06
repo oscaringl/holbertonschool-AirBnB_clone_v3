@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-"""Starts a Flask app to generate complete html page"""
+"""Flask app to generate complete html page containing location/amenity
+dropdown menus and rental listings"""
 from flask import Flask, render_template
 from models import storage
 app = Flask('web_flask')
