@@ -1,67 +1,77 @@
 #!/usr/bin/python3
-"""State objects"""
-from flask import jsonify, abort, request, make_response
+"""API endpoint"""
+from flask import abort, jsonify, request
 from api.v1.views import app_views
 from models import storage
 from models.amenity import Amenity
 
 
-@app_views.route('/amenities', methods=['GET'],
-                 strict_slashes=False)
-def ret_amenities():
-    """ Retrieves amenities """
-    list_amenieties = []
-    for amenity in storage.all('Amenity').values():
-        list_amenieties.append(amenity.to_dict())
-    return jsonify(list_amenieties)
+@app_views.route('/amenities')
+def all_amenities():
+    """Return list of all amenities"""
+    all_amenities = storage.all("Amenity")
+    return jsonify([obj.to_dict() for obj in all_amenities.values()])
 
 
-@app_views.route('/amenities/<amenity_id>', methods=['GET'],
-                 strict_slashes=False)
-def ret_amenity(amenity_id):
-    """ Retrieves an amenity """
-    single_amenity = storage.get(Amenity, amenity_id)
-    if single_amenity is None:
+@app_views.route('/amenities', methods=['POST'])
+def add_amenity():
+    """Add amenity to states"""
+    data = request.get_json(silent=True)
+    if not data and data != {}:
+        return jsonify({'error': "Not a JSON"}), 400
+    name = data.get('name', None)
+    if not name:
+        return jsonify({'error': "Missing name"}), 400
+
+    data.pop("id", None)
+    data.pop("created_at", None)
+    data.pop("updated_at", None)
+
+    # this amenity already exists. Just update Amenity with new data
+    for amenity in storage.all("Amenity").values():
+        if amenity.name == name:
+            [setattr(amenity, key, value) for key, value in data.items()]
+            amenity.save()
+            return jsonify(amenity.to_dict()), 200
+
+    amenity = Amenity(**data)
+    amenity.save()
+    return jsonify(amenity.to_dict()), 201
+
+
+@app_views.route('/amenities/<amenity_id>', methods=['GET'])
+def get_amenity(amenity_id):
+    """GET amenity object based off id"""
+    amenity = storage.get("Amenity", amenity_id)
+    if not amenity:
         abort(404)
-    return jsonify(single_amenity.to_dict())
+    return jsonify(amenity.to_dict()), 200
 
 
-@app_views.route("/amenities/<amenity_id>", methods=['DELETE'],
-                 strict_slashes=False)
-def del_state(amenity_id):
-    """Delete a amenity object"""
-    amenity_del = storage.get(Amenity, amenity_id)
-    if amenity_del:
-        storage.delete(amenity_del)
-        storage.save()
-        return jsonify({})
-    abort(404)
-
-
-@app_views.route('/amenities/<amenity_id>', methods=['PUT'],
-                 strict_slashes=False)
+@app_views.route('/amenities/<amenity_id>', methods=['PUT'])
 def update_amenity(amenity_id):
-    """ Task 7 :Updates a State object:"""
-    content = request.get_json()
-    if content is None:
-        abort(400, 'Not a JSON')
-    amenity_up = storage.get(Amenity, state_id)
-    if amenity_up is None:
+    """UPDATE amenity object based off id"""
+    amenity = storage.get("Amenity", amenity_id)
+    if not amenity:
         abort(404)
-    for key, val in content.items():
-        if key != 'id' and key != 'created_at' and key != 'updated_at':
-            setattr(amenity_up, key, val)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': "Not a JSON"}), 400
+    for key, value in data.items():
+        if key in ["id", "created_at", "updated_at"]:
+            continue
+        setattr(amenity, key, value)
+    amenity.save()
+    return jsonify(amenity.to_dict()), 200
+
+
+@app_views.route('/amenities/<amenity_id>', methods=['DELETE'])
+def delete_amenity(amenity_id):
+    """DELETE amenity object based off id"""
+    amenity = storage.get("Amenity", amenity_id)
+    if not amenity:
+        abort(404)
+    amenity.delete()
     storage.save()
-    return jsonify(amenity_up.to_dict()), 200
-
-
-@app_views.route('/amenities/', methods=['POST'], strict_slashes=False)
-def post_amenity():
-    """create a new amenity"""
-    if not request.get_json():
-        return make_response(jsonify({'error': 'Not a JSON'}), 400)
-    if "name" not in request.get_json():
-        return make_response(jsonify({'error': 'Missing name'}), 400)
-    new_amenity = Amenity(**request.get_json())
-    new_amenity.save()
-    return make_response(jsonify(new_amenity.to_dict()), 201)
+    return jsonify({}), 200
