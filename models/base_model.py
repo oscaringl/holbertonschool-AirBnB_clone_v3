@@ -2,39 +2,48 @@
 """
 Contains class BaseModel
 """
-import uuid
-import models
-from pprint import pprint
+
 from datetime import datetime
-from sqlalchemy import Column, String
-from sqlalchemy.dialects.mysql import DATETIME
+import models
+from sqlalchemy import Column, String, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+import uuid
+from os import getenv
 
 time_fmt = "%Y-%m-%dT%H:%M:%S.%f"
+
+if getenv("HBNB_TYPE_STORAGE") == 'db':
+    Base = declarative_base()
+else:
+    Base = object
 
 
 class BaseModel:
     """The BaseModel class from which future classes will be derived"""
-    id = Column(String(60), nullable=False, primary_key=True)
-    created_at = Column(DATETIME(fsp=6), nullable=False,
-                        default=datetime.utcnow)
-    updated_at = Column(DATETIME(fsp=6), nullable=False,
-                        default=datetime.utcnow)
+
+    if getenv("HBNB_TYPE_STORAGE") == 'db':
+        id = Column(String(60), nullable=False, primary_key=True)
+        created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+        updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def __init__(self, *args, **kwargs):
         """Initialization of the base model"""
-        self.id = kwargs.pop('id', str(uuid.uuid4()))
-        self.created_at = kwargs.pop('created_at', datetime.now())
-        self.updated_at = kwargs.pop('updated_at', self.created_at)
-        if type(self.created_at) is str:
-            self.created_at = datetime.strptime(self.created_at, time_fmt)
-        if type(self.updated_at) is str:
-            self.updated_at = datetime.strptime(self.updated_at, time_fmt)
-        models.storage.new(self)
+        self.id = str(uuid.uuid4())
+        self.created_at = datetime.now()
+        self.updated_at = self.created_at
+        for key, value in kwargs.items():
+            if key == '__class__':
+                continue
+            setattr(self, key, value)
+            if type(self.created_at) is str:
+                self.created_at = datetime.strptime(self.created_at, time_fmt)
+            if type(self.updated_at) is str:
+                self.updated_at = datetime.strptime(self.updated_at, time_fmt)
 
     def __str__(self):
         """String representation of the BaseModel class"""
         return "[{:s}] ({:s}) {}".format(self.__class__.__name__, self.id,
-                                         self.to_dict())
+                                         self.__dict__)
 
     def save(self):
         """updates the attribute 'updated_at' with the current datetime"""
@@ -42,15 +51,22 @@ class BaseModel:
         models.storage.new(self)
         models.storage.save()
 
-    def to_dict(self, **kwargs):
+    def to_dict(self, save_to_disk=False):
         """returns a dictionary containing all keys/values of the instance"""
-        new_dict = dict(list(filter(lambda i: not i[0].startswith('_'),
-                                    vars(self).items())))
+        new_dict = self.__dict__.copy()
         if "created_at" in new_dict:
             new_dict["created_at"] = new_dict["created_at"].isoformat()
         if "updated_at" in new_dict:
             new_dict["updated_at"] = new_dict["updated_at"].isoformat()
+        if '_password' in new_dict:
+            new_dict['password'] = new_dict['_password']
+            new_dict.pop('_password', None)
         new_dict["__class__"] = self.__class__.__name__
+        new_dict.pop('_sa_instance_state', None)
+        new_dict.pop('amenities', None)
+        new_dict.pop('reviews', None)
+        if not save_to_disk:
+            new_dict.pop('password', None)
         return new_dict
 
     def delete(self):
